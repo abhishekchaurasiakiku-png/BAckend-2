@@ -1,0 +1,144 @@
+// Prisma schema for ChatHub
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users ──────────────────────────────────────────────
+model User {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @db.VarChar(100)
+  emailOrPhone  String   @unique @map("email_or_phone") @db.VarChar(255)
+  passwordHash  String   @map("password_hash") @db.VarChar(255)
+  avatarUrl     String?  @map("avatar_url") @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  messages              Message[]
+  conversationMembers   ConversationMember[]
+  messageReceipts       MessageReceipt[]
+  pushTokens            PushToken[]
+  refreshTokens         RefreshToken[]
+
+  @@map("users")
+}
+
+// ─── Conversations ──────────────────────────────────────
+enum ConversationType {
+  direct
+  group
+}
+
+model Conversation {
+  id        String           @id @default(uuid()) @db.Uuid
+  type      ConversationType
+  title     String?          @db.VarChar(255) // Optional, for groups
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  messages Message[]
+  members  ConversationMember[]
+
+  @@map("conversations")
+}
+
+// ─── Messages ───────────────────────────────────────────
+model Message {
+  id             BigInt   @id @default(autoincrement())
+  conversationId String   @map("conversation_id") @db.Uuid
+  senderId       String   @map("sender_id") @db.Uuid
+  content        String   @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // Relations
+  conversation Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User           @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  receipts     MessageReceipt[]
+
+  // Indexes for fast lookup
+  @@index([conversationId, id(sort: Desc)], name: "idx_messages_conversation")
+  @@index([conversationId, id], name: "idx_messages_after")
+  @@map("messages")
+}
+
+// ─── Conversation Members ───────────────────────────────
+enum MemberRole {
+  default_role @map("default")
+  admin
+  user
+}
+
+model ConversationMember {
+  conversationId String   @map("conversation_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  role           MemberRole @default(default_role)
+  joinedAt       DateTime   @default(now()) @map("joined_at")
+
+  // Relations
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId], name: "idx_conv_members_user")
+  @@map("conversation_members")
+}
+
+// ─── Message Receipts ───────────────────────────────────
+model MessageReceipt {
+  messageId   BigInt    @map("message_id")
+  userId      String    @map("user_id") @db.Uuid
+  deliveredAt DateTime? @map("delivered_at")
+  readAt      DateTime? @map("read_at")
+
+  // Relations
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId])
+  @@index([userId, deliveredAt], name: "idx_receipts_undelivered")
+  @@map("message_receipts")
+}
+
+// ─── Push Tokens ────────────────────────────────────────
+enum Platform {
+  android
+  ios
+  web
+}
+
+model PushToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  deviceId  String   @map("device_id") @db.VarChar(255)
+  pushToken String   @map("push_token") @db.VarChar(500)
+  platform  Platform
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], name: "idx_push_tokens_user")
+  @@map("push_tokens")
+}
+
+// ─── Refresh Tokens ─────────────────────────────────────
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @unique @db.VarChar(500)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], name: "idx_refresh_tokens_user")
+  @@map("refresh_tokens")
+}
